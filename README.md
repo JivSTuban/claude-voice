@@ -19,6 +19,7 @@ voice say "hi"  # check the voice
 
 - **One at a time.** hook.sh only queues. One daemon speaks, listens, types, then takes the next job.
 - **skadoosh** ends your reply, but only as the last word of what you say (a pause after it); saying it mid-sentence is just words. After it the voice says "Thank you for your reply." at once (pre-rendered, plays while the text is typed in), or "Reply skipped." if you said nothing. Say it alone to skip a session. 20 s of silence also skips.
+- A restart or crash mid-job does not lose it: the job stays in `claimed/` until done and is requeued on start. A second `voice on` is refused (flock), because two daemons would both open the mic.
 - A newer turn from the same session replaces its older queued one; jobs older than 30 min are dropped.
 - While you talk to job 1, jobs 2 and up are already being summarized.
 

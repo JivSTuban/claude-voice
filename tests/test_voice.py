@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_home = tempfile.mkdtemp(prefix="cv-test-")    # never write into the live ~/.claude-voice (log, queue, lock)
+os.environ["CLAUDE_VOICE_HOME"] = _home
 import voice  # noqa: E402
 
 
@@ -37,6 +39,10 @@ class StopWord(unittest.TestCase):
         for s in ["merge the shadow branch", "yes please schedule it", "kids do shoes", "ship it to prod",
                   "scale the doo sheet", "approve the push and run the tests"]:
             self.assertFalse(voice.split_at_stop_word(s)[1], s)
+
+    def test_repeated_stop_words_all_stripped(self):
+        self.assertEqual(voice.split_at_stop_word("There are zooms. Skadoosh. Skadoosh. Skadoosh."), ("There are zooms.", True))
+        self.assertEqual(voice.split_at_stop_word("Skadoosh. Skadoosh."), ("", True))
 
     def test_only_stop_word_is_an_empty_reply(self):
         self.assertEqual(voice.split_at_stop_word("Skadoosh."), ("", True))
@@ -66,6 +72,26 @@ class Queue(unittest.TestCase):
     def test_expired_jobs_dropped(self):
         self.put("1.json", "a", int(time.time()) - voice.JOB_MAX_AGE_S - 5)
         self.assertIsNone(voice.next_job())
+
+
+class Restart(unittest.TestCase):
+    def test_unfinished_claimed_job_is_requeued(self):
+        with tempfile.TemporaryDirectory() as d:
+            voice.QUEUE, voice.CLAIMED = Path(d) / "q", Path(d) / "c"
+            voice.QUEUE.mkdir(), voice.CLAIMED.mkdir()
+            (voice.CLAIMED / "1.json").write_text("{}")
+            voice.requeue_claimed()
+            self.assertTrue((voice.QUEUE / "1.json").exists())
+            self.assertFalse((voice.CLAIMED / "1.json").exists())
+
+    def test_second_daemon_is_refused(self):
+        voice.HOME = Path(_home)
+        first = voice.single_instance()
+        try:
+            with self.assertRaises(SystemExit):
+                voice.single_instance()
+        finally:
+            first.close()
 
 
 @unittest.skipUnless(voice.WHISPER_MODEL.exists(), "whisper model missing")

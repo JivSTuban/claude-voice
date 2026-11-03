@@ -30,6 +30,7 @@ import numpy as np
 
 HOME = Path(os.environ.get("CLAUDE_VOICE_HOME", Path.home() / ".claude-voice"))
 QUEUE = HOME / "queue"
+CLAIMED = HOME / "claimed"      # a job lives here while it is being spoken and answered
 FLAG = HOME / "on"
 LOG = HOME / "voice.log"
 
@@ -80,13 +81,22 @@ def split_at_stop_word(text):
 
     # It only counts as the LAST thing said. Segments end on a ~0.7 s pause, so a deliberate
     # "skadoosh" is always final, while "after I say skadoosh I want..." is a sentence.
-    n = len(norm)
-    if n and len(norm[-1]) >= 6 and close(norm[-1]):     # "doosh" alone scores 0.77: length floor
-        return " ".join(words[:-1]).strip(" ,;:-"), True
-    # Split spelling ("ska doosh"): only when both halves are short, otherwise
-    # "ahead" + "skadoosh" glues into a near-match and eats the real last word.
-    if n >= 2 and len(norm[-2]) <= 5 and len(norm[-1]) <= 6 and close(norm[-2] + norm[-1]):
-        return " ".join(words[:-2]).strip(" ,;:-"), True
+    def stop_at_end(ws):
+        """Words before a trailing stop word, or None."""
+        nm = [re.sub(r"[^a-z]", "", w.lower()) for w in ws]
+        if nm and len(nm[-1]) >= 6 and close(nm[-1]):     # "doosh" alone scores 0.77: length floor
+            return ws[:-1]
+        # Split spelling ("ska doosh"): only when both halves are short, otherwise
+        # "ahead" + "skadoosh" glues into a near-match and eats the real last word.
+        if len(nm) >= 2 and len(nm[-2]) <= 5 and len(nm[-1]) <= 6 and close(nm[-2] + nm[-1]):
+            return ws[:-2]
+        return None
+
+    rest = stop_at_end(words)
+    if rest is not None:
+        while (more := stop_at_end(rest)) is not None:   # said it three times
+            rest = more
+        return " ".join(rest).strip(" ,;:-"), True
     return text.strip(), False
 
 
@@ -379,11 +389,32 @@ def handle(job, speaker):
         speaker.say(SKIPPED, cache=True)        # skadoosh alone, or silence: next session
 
 
+def requeue_claimed():
+    """A restart or crash mid-job must not lose the job: put leftovers back in the queue."""
+    CLAIMED.mkdir(parents=True, exist_ok=True)
+    for f in CLAIMED.glob("*.json"):
+        f.rename(QUEUE / f.name)
+        log(f"requeued unfinished job {f.name}")
+
+
+def single_instance():
+    """Two daemons would both claim jobs and both open the mic. flock dies with the process."""
+    import fcntl
+    lock = open(HOME / "lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit("voice is already running (only one daemon may hold the mic)")
+    return lock
+
+
 def run():
     HOME.mkdir(parents=True, exist_ok=True)
     QUEUE.mkdir(exist_ok=True)
+    lock = single_instance()                     # kept open for the life of the process  # noqa: F841
     FLAG.touch()
     atexit.register(lambda: FLAG.unlink(missing_ok=True))
+    requeue_claimed()
     speaker = Speaker()
     speaker.warm(THANKS, SKIPPED)
     threading.Thread(target=prefetch_forever, daemon=True).start()
@@ -393,11 +424,15 @@ def run():
         if job is None:
             time.sleep(0.5)
             continue
-        job["_file"].unlink(missing_ok=True)    # claim it before the slow part
+        claimed = CLAIMED / job["_file"].name
+        job["_file"].rename(claimed)             # claim it before the slow part, but keep it until done
+        job["_file"] = Path(job["_file"].name)   # handle() only needs the name (summary cache key)
         try:
             handle(job, speaker)
+            claimed.unlink(missing_ok=True)
         except Exception as e:
             log(f"job failed: {e!r}")
+            claimed.unlink(missing_ok=True)
 
 
 def main():
