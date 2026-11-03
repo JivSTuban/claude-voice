@@ -98,6 +98,41 @@ class Skills(unittest.TestCase):
             self.assertEqual(self.r(t), t, t)
 
 
+class Fresh(unittest.TestCase):
+    def transcript(self, entries):
+        f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+        for e in entries:
+            f.write(json.dumps({"type": "user", "message": {"content": e}}) + "\n")
+        f.close()
+        return f.name
+
+    REFRESH = "<command-message>refresh</command-message>\n<command-name>/refresh</command-name>"
+
+    def test_after_refresh_is_fresh_even_with_skill_body_and_tool_results(self):
+        t = self.transcript([self.REFRESH, "Base directory for this skill: /x/refresh\n# refresh",
+                             [{"type": "tool_result", "content": "ok"}]])
+        self.assertTrue(voice.starts_fresh(t))
+
+    def test_real_prompt_after_refresh_is_not_fresh(self):
+        t = self.transcript([self.REFRESH, "Base directory for this skill: /x", "fix the cron typo"])
+        self.assertFalse(voice.starts_fresh(t))
+
+    def test_missing_transcript_is_not_fresh(self):
+        self.assertFalse(voice.starts_fresh("/nonexistent.jsonl"))
+
+
+class Up(unittest.TestCase):
+    def test_up_is_a_noop_while_a_daemon_holds_the_lock(self):
+        voice.HOME = Path(_home)
+        held = voice.single_instance()
+        try:
+            r = subprocess.run(["/opt/homebrew/bin/python3.11", str(Path(voice.__file__)), "up"],
+                               capture_output=True, text=True, env={**os.environ, "CLAUDE_VOICE_HOME": _home}, timeout=20)
+            self.assertIn("already running", r.stdout)
+        finally:
+            held.close()
+
+
 class Restart(unittest.TestCase):
     def test_unfinished_claimed_job_is_requeued(self):
         with tempfile.TemporaryDirectory() as d:

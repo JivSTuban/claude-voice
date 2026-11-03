@@ -17,6 +17,7 @@ import difflib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -259,6 +260,35 @@ def recent_requests(transcript_path, n=2):
     return out[-n:]
 
 
+STARTUP_PROMPT = (
+    "You write what a voice assistant says out loud when a Claude Code session has just loaded its "
+    "context and is waiting for instructions. Input: project name and the session's context report. "
+    "Output 25 to 40 words of plain spoken English: the project name is added for you, so start with "
+    "the one next action or open item from last time if the report names one, then ask what to work on. "
+    "No markdown, no code, no file paths, no em-dashes, no greeting, no sign-off."
+)
+
+
+def starts_fresh(transcript_path):
+    """True when the last real prompt of the session is /refresh, i.e. nobody has given it work yet.
+    Skips skill-body entries and tool results, which are also stored as user entries."""
+    try:
+        lines = Path(transcript_path).expanduser().read_text().splitlines()
+        for line in reversed(lines):
+            e = json.loads(line)
+            if e.get("type") != "user":
+                continue
+            c = e.get("message", {}).get("content")
+            if isinstance(c, list):
+                c = " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+            if not isinstance(c, str) or not c.strip() or c.startswith("Base directory for this skill"):
+                continue
+            return "<command-name>/refresh</command-name>" in c or c.strip() == "/refresh"
+    except Exception:
+        pass
+    return False
+
+
 def fallback_summary(msg):
     plain = re.sub(r"[`*#>|]|\[([^\]]*)\]\([^)]*\)", r"\1", msg)
     return " ".join(plain.split()[:60])
@@ -266,16 +296,20 @@ def fallback_summary(msg):
 
 def summarize(job):
     project = Path(job["cwd"]).name or "unknown"
-    prompt = (f"Project: {project}\nUser's recent requests:\n- " +
-              "\n- ".join(recent_requests(job["transcript_path"]) or ["(unknown)"]) +
-              f"\n\nClaude's final message:\n{job['message'][:6000]}")
+    fresh = starts_fresh(job["transcript_path"])
+    if fresh:
+        prompt = f"Project: {project}\n\nContext report:\n{job['message'][:6000]}"
+    else:
+        prompt = (f"Project: {project}\nUser's recent requests:\n- " +
+                  "\n- ".join(recent_requests(job["transcript_path"]) or ["(unknown)"]) +
+                  f"\n\nClaude's final message:\n{job['message'][:6000]}")
     env = {k: v for k, v in os.environ.items() if k not in ("ITERM_SESSION_ID", "TERM_SESSION_ID")}
     env["CLAUDE_VOICE_CHILD"] = "1"      # hook.sh ignores this process's own Stop event
     try:
         r = subprocess.run(
             ["claude", "-p", "--model", "haiku", "--no-session-persistence", "--disable-slash-commands",
              "--tools", "", "--strict-mcp-config",     # without it every MCP server boots: ~8 s slower
-             "--system-prompt", SUMMARY_PROMPT],
+             "--system-prompt", STARTUP_PROMPT if fresh else SUMMARY_PROMPT],
             input=prompt, env=env, cwd="/tmp", capture_output=True, text=True, timeout=90)
         text = r.stdout.strip()
         if r.returncode == 0 and text:
@@ -512,15 +546,54 @@ def run():
             claimed.unlink(missing_ok=True)
 
 
+def up():
+    """Make sure the one daemon is running; start it in its own iTerm window if not.
+
+    Safe to call on every `cc`: a held lock means it is already up. The daemon needs a window of
+    iTerm's own (not a launchd job) because the mic permission belongs to iTerm. The caller's pane
+    is re-selected afterwards so the new window does not steal focus from the cc grid."""
+    HOME.mkdir(parents=True, exist_ok=True)
+    import fcntl
+    probe = open(HOME / "lock", "a+")
+    try:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("voice already running")
+        return
+    probe.close()                                # free again, so the daemon can take it
+    origin = os.environ.get("ITERM_SESSION_ID", "").split(":")[-1]
+    script = APPLESCRIPT_FIND + '''
+on run argv
+  tell application "iTerm2" to create window with default profile command (item 1 of argv)
+  set s to findSession(item 2 of argv)
+  if s is not missing value then tell application "iTerm2" to tell s to select
+end run'''
+    cmd = shutil.which("voice") or f"{sys.executable} {Path(__file__).resolve()}"
+    subprocess.run(["osascript", "-e", script, "--", f"{cmd} on", origin], capture_output=True)
+    for _ in range(40):                          # the daemon takes the lock before loading Kokoro
+        time.sleep(0.5)
+        t = open(HOME / "lock", "a+")
+        try:
+            fcntl.flock(t, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            t.close()
+        except BlockingIOError:
+            print("voice started")
+            return
+    print("voice did not start; run `voice on` in a pane to see why")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("on")
+    sub.add_parser("up")
     s = sub.add_parser("say"); s.add_argument("text")
     l = sub.add_parser("listen"); l.add_argument("wav")
     a = ap.parse_args()
     if a.cmd == "on":
         run()
+    elif a.cmd == "up":
+        up()
     elif a.cmd == "say":
         Speaker().say(a.text)
     else:

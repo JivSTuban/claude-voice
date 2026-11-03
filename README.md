@@ -23,6 +23,14 @@ voice say "hi"  # check the voice
 - A newer turn from the same session replaces its older queued one; jobs older than 30 min are dropped.
 - While you talk to job 1, jobs 2 and up are already being summarized.
 
+## Start with cc
+
+`voice up` starts the daemon in its own iTerm window unless one already holds the lock (the mic
+permission belongs to iTerm, so a launchd job will not do). `~/.zshrc` wraps `cc` so every launch
+runs it; the wrapper is personal and stays out of the public cc-iterm repo. A session that just ran
+`/refresh` gets a 25 to 40 word "next action from last time, what should I work on?" instead of the
+turn summary, so a fresh 3x3 grid greets you one session at a time.
+
 ## Skills by voice
 
 Skills need a leading `/`, which cannot be said. A reply that **starts** with a trigger word is turned
