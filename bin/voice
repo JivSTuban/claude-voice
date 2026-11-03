@@ -1,0 +1,3 @@
+#!/bin/sh
+# Thin launcher so `voice on` works from any pane. Python 3.11 because Kokoro is installed there.
+exec /opt/homebrew/bin/python3.11 "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/../voice.py" "$@"
