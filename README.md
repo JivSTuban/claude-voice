@@ -60,6 +60,7 @@ start of a message anyway); say it in words and the session picks the skill itse
 ## Traps
 
 - **A reply typed in one burst sits unsent.** Claude Code reads a long burst (323 chars reproduced it) as a paste and the Enter inside it is swallowed. `type_into_pane` pastes with `newline NO`, waits 0.4 s, then sends Enter alone.
+- **Find and type in ONE AppleScript.** A pane reference handed back from a helper is index-based: if a window opens or closes before the write, the text lands in another pane and still reports success (stress test: 10 of 15 lost). `_write` finds and types atomically; Enter is its own find-and-type step; both retry.
 - **iTerm panes are found by `unique id`**, the UUID after the colon in `$ITERM_SESSION_ID`. `session id "..."` errors with -1728.
 - **`claude -p` boots every MCP server** (+8 s) unless `--strict-mcp-config`. `--bare` needs an API key, so it is not an option on a login.
 - **The summarizer runs hooks too.** `CLAUDE_VOICE_CHILD=1` makes hook.sh ignore its Stop event, or it would queue itself forever.

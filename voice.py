@@ -346,24 +346,69 @@ def next_job():
 APPLESCRIPT_FIND = '''
 on findSession(uid)
   tell application "iTerm2"
-    repeat with w in windows
-      repeat with t in tabs of w
-        repeat with s in sessions of t
-          if (unique id of s) is uid then return s
+    set n to count of windows
+    repeat with i from 1 to n
+      try
+        repeat with t in tabs of window i
+          repeat with s in sessions of t
+            if (unique id of s) is uid then return s
+          end repeat
         end repeat
-      end repeat
+      end try
     end repeat
   end tell
   return missing value
 end findSession
 '''
+# Why the try: iTerm's window list changes while we scan it whenever cc opens panes or `voice up`
+# opens its window; without it a reply was lost to "Can't get item 2 of every window (-1719)".
 
 
 def pane_exists(pane):
-    r = subprocess.run(["osascript", "-e", APPLESCRIPT_FIND + '\non run argv\n'
-                        '  return (findSession(item 1 of argv) is not missing value) as text\nend run',
-                        "--", pane], capture_output=True, text=True)
-    return r.stdout.strip() == "true"
+    for _ in range(3):
+        r = subprocess.run(["osascript", "-e", APPLESCRIPT_FIND + '\non run argv\n'
+                            '  return (findSession(item 1 of argv) is not missing value) as text\nend run',
+                            "--", pane], capture_output=True, text=True)
+        if r.stdout.strip() == "true":
+            return True
+        time.sleep(0.3)
+    return False
+
+
+_WRITE = '''
+on run argv
+  tell application "iTerm2"
+    set n to count of windows
+    repeat with i from 1 to n
+      try
+        repeat with t in tabs of window i
+          repeat with s in sessions of t
+            if (unique id of s) is (item 1 of argv) then
+              if (item 3 of argv) is "yes" then
+                tell s to write text (item 2 of argv)
+              else
+                tell s to write text (item 2 of argv) newline NO
+              end if
+              return "ok"
+            end if
+          end repeat
+        end repeat
+      end try
+    end repeat
+  end tell
+  return "gone"
+end run'''
+
+
+def _write(pane, text, newline):
+    """Find the pane and type into it in ONE script. A pane reference returned from a helper is
+    index-based, so if a window opens or closes between "find" and "write" (cc opening panes, voice up)
+    the text lands in the wrong pane while still reporting success (reproduced: 10 of 15 lost)."""
+    r = subprocess.run(["osascript", "-e", _WRITE, "--", pane, text, "yes" if newline else "no"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"type failed: {r.stderr.strip()[:160]}")
+    return r.returncode == 0 and r.stdout.strip() == "ok"
 
 
 def type_into_pane(pane, text):
@@ -374,16 +419,16 @@ def type_into_pane(pane, text):
     box (reproduced with a 323 char reply; short ones slipped through). So: paste, pause, Enter.
     iTerm's AppleScript addresses panes by unique id (the UUID after the colon in
     ITERM_SESSION_ID), not by `session id`."""
-    script = APPLESCRIPT_FIND + '''
-on run argv
-  set s to findSession(item 1 of argv)
-  if s is missing value then error "pane gone"
-  tell application "iTerm2" to tell s to write text (item 2 of argv) newline NO
-  delay 0.4
-  tell application "iTerm2" to tell s to write text ""
-end run'''
-    r = subprocess.run(["osascript", "-e", script, "--", pane, text], capture_output=True, text=True)
-    return r.returncode == 0
+    for _ in range(3):
+        if _write(pane, text, newline=False):
+            time.sleep(0.4)
+            for _ in range(3):                  # the text is in the box now: keep trying to send it
+                if _write(pane, "", newline=True):
+                    return True
+                time.sleep(0.3)
+            return False
+        time.sleep(0.5)
+    return False
 
 
 # ---------- spoken skills ----------
@@ -562,11 +607,27 @@ def up():
         return
     probe.close()                                # free again, so the daemon can take it
     origin = os.environ.get("ITERM_SESSION_ID", "").split(":")[-1]
-    script = APPLESCRIPT_FIND + '''
+    script = '''
 on run argv
-  tell application "iTerm2" to create window with default profile command (item 1 of argv)
-  set s to findSession(item 2 of argv)
-  if s is not missing value then tell application "iTerm2" to tell s to select
+  tell application "iTerm2"
+    create window with default profile command (item 1 of argv)
+    set n to count of windows
+    repeat with i from 1 to n
+      try
+        set w to window i
+        repeat with t in tabs of w
+          repeat with s in sessions of t
+            if (unique id of s) is (item 2 of argv) then
+              tell w to select
+              tell t to select
+              tell s to select
+              return
+            end if
+          end repeat
+        end repeat
+      end try
+    end repeat
+  end tell
 end run'''
     cmd = shutil.which("voice") or f"{sys.executable} {Path(__file__).resolve()}"
     subprocess.run(["osascript", "-e", script, "--", f"{cmd} on", origin], capture_output=True)
