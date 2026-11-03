@@ -23,6 +23,24 @@ voice say "hi"  # check the voice
 - A newer turn from the same session replaces its older queued one; jobs older than 30 min are dropped.
 - While you talk to job 1, jobs 2 and up are already being summarized.
 
+## Skills by voice
+
+Skills need a leading `/`, which cannot be said. A reply that **starts** with a trigger word is turned
+into the slash command before it is typed:
+
+| You say | Typed |
+|---------|-------|
+| "slash dev verify" | `/dev-verify` |
+| "skill social post about cc-iterm" | `/social-post about cc-iterm` |
+| "run the dev review on this diff" | `/dev-review on this diff` |
+| "run handoff" | `/handoff` |
+
+`slash`, `skill`, `command` always work. Plain verbs (run, use, perform, execute...) only work for
+names that are not ordinary English, so "use the dev branch" stays a sentence; for `dev`, `refresh`,
+`wake` etc. say "slash". A skill named mid-sentence is not rewritten (a slash command only works at the
+start of a message anyway); say it in words and the session picks the skill itself. Names come from
+`~/.claude/skills` and the session's `.claude/skills`; plugin skills (`plugin:skill`) are not routed yet.
+
 ## Parts
 
 | File | Job |
@@ -33,6 +51,7 @@ voice say "hi"  # check the voice
 
 ## Traps
 
+- **A reply typed in one burst sits unsent.** Claude Code reads a long burst (323 chars reproduced it) as a paste and the Enter inside it is swallowed. `type_into_pane` pastes with `newline NO`, waits 0.4 s, then sends Enter alone.
 - **iTerm panes are found by `unique id`**, the UUID after the colon in `$ITERM_SESSION_ID`. `session id "..."` errors with -1728.
 - **`claude -p` boots every MCP server** (+8 s) unless `--strict-mcp-config`. `--bare` needs an API key, so it is not an option on a login.
 - **The summarizer runs hooks too.** `CLAUDE_VOICE_CHILD=1` makes hook.sh ignore its Stop event, or it would queue itself forever.

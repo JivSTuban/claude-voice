@@ -74,6 +74,30 @@ class Queue(unittest.TestCase):
         self.assertIsNone(voice.next_job())
 
 
+class Skills(unittest.TestCase):
+    NAMES = {"dev", "dev-verify", "handoff", "refresh", "social-post", "wake", "dev-ship"}
+
+    def r(self, text):
+        return voice.route_skill(text, self.NAMES)
+
+    def test_slash_word_always_works(self):
+        self.assertEqual(self.r("slash dev verify"), "/dev-verify")
+        self.assertEqual(self.r("Slash dev."), "/dev")
+        self.assertEqual(self.r("slash refresh"), "/refresh")
+        self.assertEqual(self.r("slash dev dash verify"), "/dev-verify")
+
+    def test_spoken_forms_whisper_produces(self):
+        self.assertEqual(self.r("perform DevVerify"), "/dev-verify")
+        self.assertEqual(self.r("Run the dev verify skill on the farfolio PR."), "/dev-verify on the farfolio PR.")
+        self.assertEqual(self.r("skill social post about the voice tool"), "/social-post about the voice tool")
+        self.assertEqual(self.r("run handoff"), "/handoff")
+
+    def test_plain_sentences_are_left_alone(self):
+        for t in ["use the dev branch", "run refresh the page", "start the wake word", "Yes, ship it",
+                  "run the tests", "perform the merge", "keep the resume dates"]:
+            self.assertEqual(self.r(t), t, t)
+
+
 class Restart(unittest.TestCase):
     def test_unfinished_claimed_job_is_requeued(self):
         with tempfile.TemporaryDirectory() as d:

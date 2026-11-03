@@ -333,16 +333,89 @@ def pane_exists(pane):
 
 
 def type_into_pane(pane, text):
-    """Type `text` + Enter into the pane. iTerm's AppleScript addresses panes by unique id
-    (the UUID after the colon in ITERM_SESSION_ID), not by `session id`."""
+    """Type `text` into the pane, then press Enter as a separate keystroke.
+
+    One `write text` (text + newline) lands as a single burst, which Claude Code treats as a
+    paste: the Enter inside it becomes part of the paste and the reply just sits in the prompt
+    box (reproduced with a 323 char reply; short ones slipped through). So: paste, pause, Enter.
+    iTerm's AppleScript addresses panes by unique id (the UUID after the colon in
+    ITERM_SESSION_ID), not by `session id`."""
     script = APPLESCRIPT_FIND + '''
 on run argv
   set s to findSession(item 1 of argv)
   if s is missing value then error "pane gone"
-  tell application "iTerm2" to tell s to write text (item 2 of argv)
+  tell application "iTerm2" to tell s to write text (item 2 of argv) newline NO
+  delay 0.4
+  tell application "iTerm2" to tell s to write text ""
 end run'''
     r = subprocess.run(["osascript", "-e", script, "--", pane, text], capture_output=True, text=True)
     return r.returncode == 0
+
+
+# ---------- spoken skills ----------
+
+STRONG = {"slash", "skill", "command"}           # unambiguous: "slash dev verify"
+WEAK = {"run", "perform", "use", "execute", "launch", "start", "invoke"}
+FILLER = {"the", "a", "my", "this"}
+DASHES = {"dash", "hyphen"}
+
+
+def _norm(x):
+    return re.sub(r"[^a-z0-9]", "", x.lower())
+
+
+def skill_names(cwd):
+    """Skill folder names: global plus the session's own project."""
+    names = set()
+    for base in (Path.home() / ".claude/skills", Path(cwd) / ".claude/skills"):
+        if base.is_dir():
+            names |= {d.name for d in base.iterdir() if d.is_dir() or d.is_symlink()}
+    return names
+
+
+def _english(word):
+    try:
+        with open("/usr/share/dict/words") as f:
+            return word.lower() in {line.strip().lower() for line in f}
+    except OSError:
+        return True      # no word list: be careful, treat as English
+
+
+def route_skill(text, names):
+    """Turn "slash dev verify on the PR" / "perform DevVerify" into "/dev-verify on the PR".
+
+    Skills need a leading "/", which cannot be said. "slash", "skill" and "command" always
+    trigger. Plain verbs (run, use, perform...) trigger only for names that are not ordinary
+    English ("use the dev branch" must stay a sentence): hyphenated or coined names like
+    dev-verify and handoff qualify, "dev", "refresh" and "wake" need "slash"."""
+    words = text.split()
+    if not words or _norm(words[0]) not in STRONG | WEAK:
+        return text
+    strong = _norm(words[0]) in STRONG
+    rest = words[1:]
+    while rest and (_norm(rest[0]) in FILLER or _norm(rest[0]) in STRONG | WEAK):
+        strong = strong or _norm(rest[0]) in STRONG
+        rest = rest[1:]
+    by_norm = {_norm(n): n for n in names}
+    best = None                                   # (score, words used, name)
+    for n in (3, 2, 1):
+        cand_words = [w for w in rest[:n] if _norm(w) not in DASHES]
+        cand = _norm("".join(cand_words))
+        if len(rest[:n]) < n or not cand:
+            continue
+        for key, name in by_norm.items():
+            score = difflib.SequenceMatcher(None, cand, key).ratio()
+            if score >= 0.86 and (best is None or (score, n) > best[:2]):
+                best = (score, n, name)
+    if not best:
+        return text
+    name = best[2]
+    if not strong and "-" not in name and _english(name):
+        return text
+    tail = rest[best[1]:]
+    if tail and _norm(tail[0]) in STRONG:         # "run dev verify skill on x"
+        tail = tail[1:]
+    return " ".join([f"/{name}"] + tail)
 
 
 SUMMARIES = {}      # job file name -> Future of its spoken summary
@@ -376,6 +449,10 @@ def handle(job, speaker):
     log(f"listen ended: {why}, reply={reply!r}")
     project = Path(job["cwd"]).name or "that session"
     if reply:
+        routed = route_skill(reply, skill_names(job["cwd"]))
+        if routed != reply:
+            log(f"skill routed: {reply!r} -> {routed!r}")
+            reply = routed
         # Type while the thank-you plays: the confirmation is instant and the next job is not delayed.
         result = {}
         typer = threading.Thread(target=lambda: result.update(ok=type_into_pane(pane, reply)))
