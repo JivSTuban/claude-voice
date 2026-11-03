@@ -29,6 +29,18 @@ from pathlib import Path
 
 import numpy as np
 
+
+
+def ensure_path():
+    """A window iTerm opens from a "command" profile gets launchd's bare PATH, so `claude`, `ffmpeg`
+    and `whisper-cli` vanish (summary silently fell back to the raw message, then the job died).
+    Put the usual homes of those tools first, whatever launched us."""
+    want = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", str(Path.home() / ".local/bin")]
+    have = [p for p in os.environ.get("PATH", "").split(":") if p]
+    os.environ["PATH"] = ":".join(want + [p for p in have if p not in want])
+
+
+ensure_path()
 HOME = Path(os.environ.get("CLAUDE_VOICE_HOME", Path.home() / ".claude-voice"))
 QUEUE = HOME / "queue"
 CLAIMED = HOME / "claimed"      # a job lives here while it is being spoken and answered

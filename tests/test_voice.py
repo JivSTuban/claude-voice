@@ -98,6 +98,20 @@ class Skills(unittest.TestCase):
             self.assertEqual(self.r(t), t, t)
 
 
+class Path_(unittest.TestCase):
+    def test_tools_found_from_a_bare_launchd_path(self):
+        import shutil
+        old = os.environ["PATH"]
+        try:
+            os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+            self.assertIsNone(shutil.which("ffmpeg"))        # the bug: not found without the fix
+            voice.ensure_path()
+            for tool in ("claude", "ffmpeg", "whisper-cli"):
+                self.assertIsNotNone(shutil.which(tool), tool)
+        finally:
+            os.environ["PATH"] = old
+
+
 class Fresh(unittest.TestCase):
     def transcript(self, entries):
         f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
@@ -214,7 +228,8 @@ tell application "iTerm2"
     end repeat
   end repeat
 end tell'''])
-            self.assertEqual(out.read_text().strip(), 'yes "go" ahead, it\'s fine')
+            # endswith: the scratch window takes focus, so a key you press meanwhile lands before our text
+            self.assertTrue(out.read_text().strip().endswith('yes "go" ahead, it\'s fine'), out.read_text())
             self.assertFalse(voice.pane_exists(uid))
 
 
@@ -254,7 +269,7 @@ end tell'''])
             self.assertTrue(spoken and spoken[0].lower().startswith("jobi."), spoken)
             self.assertEqual(spoken[-1], voice.THANKS)       # confirmation comes right after the reply
             self.assertIn("push", spoken[0].lower())
-            self.assertEqual(out.read_text().strip().lower().rstrip("."), "yes, ship it")
+            self.assertTrue(out.read_text().strip().lower().rstrip(".").endswith("yes, ship it"), out.read_text())
 
 
 if __name__ == "__main__":
