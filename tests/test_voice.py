@@ -29,8 +29,9 @@ class StopWord(unittest.TestCase):
             self.assertTrue(found, spelled)
             self.assertEqual(reply, "yes go ahead", spelled)
 
-    def test_text_after_stop_word_is_dropped(self):
-        self.assertEqual(voice.split_at_stop_word("do it skadoosh and also this"), ("do it", True))
+    def test_stop_word_mid_sentence_is_just_words(self):
+        text = "after I say skadoosh I want a confirmation"
+        self.assertEqual(voice.split_at_stop_word(text), (text, False))
 
     def test_normal_speech_never_stops(self):
         for s in ["merge the shadow branch", "yes please schedule it", "kids do shoes", "ship it to prod",

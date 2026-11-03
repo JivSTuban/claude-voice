@@ -70,21 +70,22 @@ def log(msg):
 
 def split_at_stop_word(text):
     """(reply, found). Whisper spells it many ways, so match by similarity, and also
-    across a split ("ska doosh"). Everything from the stop word on is dropped."""
+    across a split ("ska doosh"). Only a stop word that ends the utterance counts."""
     words = text.split()
     norm = [re.sub(r"[^a-z]", "", w.lower()) for w in words]
 
     def close(c):
         return bool(c) and difflib.SequenceMatcher(None, c, STOP_WORD).ratio() >= 0.75
 
-    for i, w in enumerate(norm):
-        if len(w) >= 6 and close(w):    # "doosh" alone scores 0.77, so it needs a length floor
-            return " ".join(words[:i]).strip(" ,;:-"), True
+    # It only counts as the LAST thing said. Segments end on a ~0.7 s pause, so a deliberate
+    # "skadoosh" is always final, while "after I say skadoosh I want..." is a sentence.
+    n = len(norm)
+    if n and len(norm[-1]) >= 6 and close(norm[-1]):     # "doosh" alone scores 0.77: length floor
+        return " ".join(words[:-1]).strip(" ,;:-"), True
     # Split spelling ("ska doosh"): only when both halves are short, otherwise
     # "ahead" + "skadoosh" glues into a near-match and eats the real last word.
-    for i in range(len(norm) - 1):
-        if len(norm[i]) <= 5 and len(norm[i + 1]) <= 6 and close(norm[i] + norm[i + 1]):
-            return " ".join(words[:i]).strip(" ,;:-"), True
+    if n >= 2 and len(norm[-2]) <= 5 and len(norm[-1]) <= 6 and close(norm[-2] + norm[-1]):
+        return " ".join(words[:-2]).strip(" ,;:-"), True
     return text.strip(), False
 
 
@@ -348,13 +349,15 @@ def handle(job, speaker):
     chime("Tink")                               # mic is open
     reply, why = listen(mic_frames())
     log(f"listen ended: {why}, reply={reply!r}")
+    project = Path(job["cwd"]).name or "that session"
     if reply:
         chime("Pop")
-        if not type_into_pane(pane, reply):
-            log("could not type into pane")
-            chime("Basso")
+        ok = type_into_pane(pane, reply)
+        log(f"typed {len(reply)} chars into pane {pane} ({project}): {'ok' if ok else 'FAILED'}")
+        speaker.say(f"Sent to {project}." if ok else f"Could not reach {project}.")
     else:
         chime("Funk")                           # skipped, next session
+        speaker.say(f"Skipped {project}.")
 
 
 def run():
