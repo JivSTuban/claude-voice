@@ -37,6 +37,7 @@ STOP_WORD = "skadoosh"
 WHISPER_MODEL = Path.home() / ".cache/whisper.cpp/ggml-small.en.bin"
 VOICE, VOICE_SPEED = "am_adam", 1.05
 JOB_MAX_AGE_S = 30 * 60      # a reply to a 30 minute old turn is a reply to nothing
+THANKS, SKIPPED = "Thank you for your reply.", "Reply skipped."
 IDLE_SKIP_S = 20             # nobody talking this long = skip this session, go to the next
 MAX_REPLY_S = 180
 
@@ -191,23 +192,37 @@ def listen(frames, transcribe=whisper, idle_s=IDLE_SKIP_S, max_s=MAX_REPLY_S):
 class Speaker:
     def __init__(self):
         self.pipe = None
+        self.cache, self.cache_dir = {}, Path(tempfile.mkdtemp(prefix="claude-voice-"))
         try:
             from kokoro import KPipeline
             self.pipe = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
         except Exception as e:
             log(f"kokoro unavailable ({e}); using macOS say")
 
-    def say(self, text):
-        if self.pipe is None:
-            subprocess.run(["say", "-r", "190", text])
-            return
+    def _render(self, text, path):
         import soundfile as sf
         chunks = []
         for _, _, audio in self.pipe(text, voice=VOICE, speed=VOICE_SPEED):
             chunks.append(audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio))
-        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
-            sf.write(f.name, np.concatenate(chunks), 24000)
-            subprocess.run(["afplay", f.name])
+        sf.write(path, np.concatenate(chunks), 24000)
+
+    def warm(self, *phrases):
+        """Render fixed phrases once at startup; say(..., cache=True) then plays with no delay."""
+        for text in phrases:
+            if self.pipe is not None and text not in self.cache:
+                path = str(self.cache_dir / f"{abs(hash(text))}.wav")
+                self._render(text, path)
+                self.cache[text] = path
+
+    def say(self, text, cache=False):
+        if cache and text in self.cache:
+            subprocess.run(["afplay", self.cache[text]])
+        elif self.pipe is None:
+            subprocess.run(["say", "-r", "190", text])
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+                self._render(text, f.name)
+                subprocess.run(["afplay", f.name])
 
 
 def chime(name):
@@ -351,13 +366,17 @@ def handle(job, speaker):
     log(f"listen ended: {why}, reply={reply!r}")
     project = Path(job["cwd"]).name or "that session"
     if reply:
-        chime("Pop")
-        ok = type_into_pane(pane, reply)
-        log(f"typed {len(reply)} chars into pane {pane} ({project}): {'ok' if ok else 'FAILED'}")
-        speaker.say(f"Sent to {project}." if ok else f"Could not reach {project}.")
+        # Type while the thank-you plays: the confirmation is instant and the next job is not delayed.
+        result = {}
+        typer = threading.Thread(target=lambda: result.update(ok=type_into_pane(pane, reply)))
+        typer.start()
+        speaker.say(THANKS, cache=True)
+        typer.join()
+        log(f"typed {len(reply)} chars into pane {pane} ({project}): {'ok' if result['ok'] else 'FAILED'}")
+        if not result["ok"]:
+            speaker.say(f"Could not reach {project}.")
     else:
-        chime("Funk")                           # skipped, next session
-        speaker.say(f"Skipped {project}.")
+        speaker.say(SKIPPED, cache=True)        # skadoosh alone, or silence: next session
 
 
 def run():
@@ -366,6 +385,7 @@ def run():
     FLAG.touch()
     atexit.register(lambda: FLAG.unlink(missing_ok=True))
     speaker = Speaker()
+    speaker.warm(THANKS, SKIPPED)
     threading.Thread(target=prefetch_forever, daemon=True).start()
     log("voice on. Say 'skadoosh' to finish a reply; skadoosh alone skips the session.")
     while True:

@@ -146,7 +146,7 @@ tell application "iTerm2" to return unique id of current session of (create wind
                                  capture_output=True, text=True).stdout.strip()
             spoken = []
             class Stub:
-                def say(self, text): spoken.append(text)
+                def say(self, text, cache=False): spoken.append(text)
             real_mic, real_chime = voice.mic_frames, voice.chime
             voice.mic_frames = lambda: voice.file_frames(wav)
             voice.chime = lambda name: None
@@ -167,6 +167,7 @@ tell application "iTerm2"
   end repeat
 end tell'''])
             self.assertTrue(spoken and spoken[0].lower().startswith("jobi."), spoken)
+            self.assertEqual(spoken[-1], voice.THANKS)       # confirmation comes right after the reply
             self.assertIn("push", spoken[0].lower())
             self.assertEqual(out.read_text().strip().lower().rstrip("."), "yes, ship it")
 
