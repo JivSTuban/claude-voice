@@ -70,6 +70,20 @@ Checked on 4 made-up turns (an approval, a clean finish, a failing test, an 8-it
 prompt: every output kept to 50 to 59 words with the need first and the question last, and none had markdown or
 file paths. That is a spot check by reading, not a blind evaluation.
 
+### Optional: shape the sessions too
+
+The voice only rewrites what a session said; it does not load the `i-have-adhd` skill (the summarizer runs
+with skills and tools off). To make the sessions' own replies action-first as well, install the skill from
+its [install guide](https://github.com/ayghri/i-have-adhd/blob/main/INSTALL.md):
+
+```
+claude plugin marketplace add ayghri/i-have-adhd
+claude plugin install i-have-adhd@i-have-adhd
+touch ~/.claude/.i-have-adhd-always     # optional: on in every session, no /i-have-adhd needed
+```
+
+Then the summarizer starts from an already-shaped message. The two are independent: neither needs the other.
+
 ## Start with cc
 
 `voice up` starts the daemon in its own iTerm window unless one already holds the lock (the mic
