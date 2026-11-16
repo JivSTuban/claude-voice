@@ -64,8 +64,24 @@ restart your Claude Code sessions:
 microphone access for iTerm the first time; allow it, and allow any prompt to let iTerm control iTerm.
 Finish a turn in any other iTerm pane running Claude Code and it will speak.
 
-Optional extras: [change the ending](#change-the-ending), [shape the sessions too](#optional-shape-the-sessions-too),
-and the 3x3 grid this was built for, [cc-iterm](https://github.com/JivSTuban/cc-iterm).
+**7. Shape what the sessions put on screen too.** The voice and the screen should read the same way, so the
+setup includes the [i-have-adhd](https://github.com/ayghri/i-have-adhd) skill (MIT): action first, numbered
+steps, one next action at the end, no preamble or closers. It does the on-screen half; `SUMMARY_PROMPT` in
+`voice.py` already applies the same rules to what is spoken, adapted for the ear, so the voice does not depend
+on this step.
+
+```
+claude plugin marketplace add ayghri/i-have-adhd
+claude plugin install i-have-adhd@i-have-adhd
+touch ~/.claude/.i-have-adhd-always     # on in every new session; without it, type /i-have-adhd per session
+```
+
+Restart your sessions. Undo: `rm ~/.claude/.i-have-adhd-always`, or say "stop adhd mode" in a session. Always-on
+loads the rules into every session you start, including scripted `claude -p` runs that read your user
+settings, so skip the `touch` if you rely on a fixed output format there.
+
+Also worth having: [change the ending](#change-the-ending), and the 3x3 grid this was built for,
+[cc-iterm](https://github.com/JivSTuban/cc-iterm).
 
 ## Use
 
@@ -112,20 +128,6 @@ filler or sign-off. The prompt is `SUMMARY_PROMPT` in `voice.py`; edit it to tas
 Checked on 4 made-up turns (an approval, a clean finish, a failing test, an 8-item review) against the old
 prompt: every output kept to 50 to 59 words with the need first and the question last, and none had markdown or
 file paths. That is a spot check by reading, not a blind evaluation.
-
-### Optional: shape the sessions too
-
-The voice only rewrites what a session said; it does not load the `i-have-adhd` skill (the summarizer runs
-with skills and tools off). To make the sessions' own replies action-first as well, install the skill from
-its [install guide](https://github.com/ayghri/i-have-adhd/blob/main/INSTALL.md):
-
-```
-claude plugin marketplace add ayghri/i-have-adhd
-claude plugin install i-have-adhd@i-have-adhd
-touch ~/.claude/.i-have-adhd-always     # optional: on in every session, no /i-have-adhd needed
-```
-
-Then the summarizer starts from an already-shaped message. The two are independent: neither needs the other.
 
 ## Start with cc
 
@@ -174,5 +176,5 @@ start of a message anyway); say it in words and the session picks the skill itse
 
 ## Not verified
 
-The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 6 start to finish on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen);
+The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 7 start to finish on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen; the `claude plugin` subcommands in step 7 exist in the CLI and the always-on hook was read, but the plugin was not installed or run);
 A custom stop word with a real voice (the matching is unit-tested on text, and "over and out", "abracadabra" and "done" each ended a reply in a macOS `say` recording through whisper small.en, but a human voice and accent are untested); live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).
