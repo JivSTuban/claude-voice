@@ -1,3 +1,9 @@
 #!/bin/sh
-# Thin launcher so `voice on` works from any pane. Python 3.11 because Kokoro is installed there.
-exec /opt/homebrew/bin/python3.11 "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/../voice.py" "$@"
+# Thin launcher so `voice on` works from any pane. Picks the Python that has Kokoro (3.10 to 3.12):
+# $CLAUDE_VOICE_PYTHON, else the venv at ~/.claude-voice/venv, else python3.11 on PATH, else Homebrew's.
+home="${CLAUDE_VOICE_HOME:-$HOME/.claude-voice}"
+py="${CLAUDE_VOICE_PYTHON:-}"
+[ -z "$py" ] && [ -x "$home/venv/bin/python" ] && py="$home/venv/bin/python"
+[ -z "$py" ] && py="$(command -v python3.11 2>/dev/null)"
+[ -z "$py" ] && py=/opt/homebrew/bin/python3.11
+exec "$py" "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/../voice.py" "$@"

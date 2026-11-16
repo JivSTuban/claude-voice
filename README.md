@@ -10,19 +10,62 @@ session stops --Stop hook--> queue/*.json --voice.py--> Haiku summary --> Kokoro
 pane gets your reply  <--AppleScript write text--  whisper-cli  <--  mic until "skadoosh"
 ```
 
-## Requirements
+## Setup
 
-macOS, iTerm2 (replies are typed with AppleScript), Python 3.11 with `numpy`, `kokoro` and `soundfile`
-(without Kokoro it falls back to `say`), `ffmpeg`, `jq`, the `claude` CLI, and
-[whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`whisper-cli` on PATH, model at
-`~/.cache/whisper.cpp/ggml-small.en.bin`). Add the hook to `~/.claude/settings.json`, pointing at
-this checkout:
+macOS with iTerm2 only: replies are typed into the pane with AppleScript, and every Claude Code session
+you want spoken for must run in an iTerm pane.
 
-```json
-{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/path/to/claude-voice/hook.sh"}]}]}}
+**1. Tools**
+
+```
+brew install --cask iterm2
+brew install python@3.11 ffmpeg jq whisper-cpp espeak-ng
 ```
 
-Put `bin/voice` on your PATH. The mic permission goes to iTerm, so run `voice on` from iTerm.
+`whisper-cpp` provides `whisper-cli`; `espeak-ng` is Kokoro's fallback for words it does not know. You also
+need the [`claude` CLI](https://docs.claude.com/en/docs/claude-code) logged in, since the summaries come from
+`claude -p --model haiku`.
+
+**2. Python packages.** Kokoro needs Python 3.10 to 3.12 (3.13 is not supported). Use a venv in the
+place the launcher looks first:
+
+```
+python3.11 -m venv ~/.claude-voice/venv
+~/.claude-voice/venv/bin/pip install numpy kokoro soundfile
+```
+
+`kokoro` pulls in PyTorch, so this is a large download, and the first `voice say` fetches the Kokoro
+weights from Hugging Face. Skip it and the voice falls back to macOS `say`. To use another Python, set
+`CLAUDE_VOICE_PYTHON` instead.
+
+**3. Speech model** (487 MB)
+
+```
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-small.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
+```
+
+**4. Get it and put `voice` on your PATH**
+
+```
+git clone https://github.com/JivSTuban/claude-voice ~/claude-voice
+mkdir -p ~/.local/bin && ln -s ~/claude-voice/bin/voice ~/.local/bin/voice   # ~/.local/bin must be on PATH
+```
+
+**5. Add the Stop hook** to `~/.claude/settings.json` (merge it with any hooks you already have), then
+restart your Claude Code sessions:
+
+```json
+{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/Users/YOU/claude-voice/hook.sh"}]}]}}
+```
+
+**6. Run it** from an iTerm pane: `voice say "hi"` to hear the voice, then `voice on`. macOS asks for
+microphone access for iTerm the first time; allow it, and allow any prompt to let iTerm control iTerm.
+Finish a turn in any other iTerm pane running Claude Code and it will speak.
+
+Optional extras: [change the ending](#change-the-ending), [shape the sessions too](#optional-shape-the-sessions-too),
+and the 3x3 grid this was built for, [cc-iterm](https://github.com/JivSTuban/cc-iterm).
 
 ## Use
 
@@ -131,4 +174,5 @@ start of a message anyway); say it in words and the session picks the skill itse
 
 ## Not verified
 
+The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 6 start to finish on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen);
 A custom stop word with a real voice (the matching is unit-tested on text, and "over and out", "abracadabra" and "done" each ended a reply in a macOS `say` recording through whisper small.en, but a human voice and accent are untested); live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).
