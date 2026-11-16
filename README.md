@@ -10,6 +10,20 @@ session stops --Stop hook--> queue/*.json --voice.py--> Haiku summary --> Kokoro
 pane gets your reply  <--AppleScript write text--  whisper-cli  <--  mic until "skadoosh"
 ```
 
+## Requirements
+
+macOS, iTerm2 (replies are typed with AppleScript), Python 3.11 with `numpy`, `kokoro` and `soundfile`
+(without Kokoro it falls back to `say`), `ffmpeg`, `jq`, the `claude` CLI, and
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`whisper-cli` on PATH, model at
+`~/.cache/whisper.cpp/ggml-small.en.bin`). Add the hook to `~/.claude/settings.json`, pointing at
+this checkout:
+
+```json
+{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/path/to/claude-voice/hook.sh"}]}]}}
+```
+
+Put `bin/voice` on your PATH. The mic permission goes to iTerm, so run `voice on` from iTerm.
+
 ## Use
 
 ```
@@ -17,11 +31,31 @@ voice on        # in its own pane. Ctrl-C turns it off
 voice say "hi"  # check the voice
 ```
 
+- **Change the ending.** The word that ends your reply defaults to `skadoosh`; see below.
 - **One at a time.** hook.sh only queues. One daemon speaks, listens, types, then takes the next job.
 - **skadoosh** ends your reply, but only as the last word of what you say (a pause after it); saying it mid-sentence is just words. After it the voice says "Thank you for your reply." at once (pre-rendered, plays while the text is typed in), or "Reply skipped." if you said nothing. Say it alone to skip a session. 20 s of silence also skips.
 - A restart or crash mid-job does not lose it: the job stays in `claimed/` until done and is requeued on start. A second `voice on` is refused (flock), because two daemons would both open the mic.
 - A newer turn from the same session replaces its older queued one; jobs older than 30 min are dropped.
 - While you talk to job 1, jobs 2 and up are already being summarized.
+
+## Change the ending
+
+```
+voice stop-word                 # show the current one and where it comes from
+voice stop-word over and out    # set it (1 to 3 words, letters only, 4+ letters in all)
+voice stop-word --reset         # back to skadoosh
+```
+
+It is saved in `~/.claude-voice/stop-word` and applies from the next reply, no restart. The env var
+`CLAUDE_VOICE_STOP_WORD` wins over the file (handy for one session). A value that cannot work (too short,
+too many words) is ignored and the default is used.
+
+Everything that makes `skadoosh` safe still applies to your word: it only counts as the **last** thing
+you say, so "when I say over and out you stop" stays a sentence, and the spoken "thank you" / "skipped"
+replies work the same. Matching is by similarity because whisper spells words many ways: a word of 7+
+letters tolerates a slip or a split ("ska doosh"), a shorter one has to match exactly. So pick something
+distinctive you would not end a sentence with, two syllables or more. Test a candidate on a recording
+before you trust it: `voice listen reply.wav`.
 
 ## Start with cc
 
@@ -70,4 +104,4 @@ start of a message anyway); say it in words and the session picks the skill itse
 
 ## Not verified
 
-Live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).
+A custom stop word on audio (the matching is unit-tested on text; how well whisper hears an unusual word is not measured); live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).

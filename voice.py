@@ -9,6 +9,7 @@ until you say the stop word. The transcript is typed into the pane that finished
     voice on              run the daemon (foreground; Ctrl-C turns it off)
     voice say "text"      test the voice
     voice listen FILE.wav test listening + stop word on a recording
+    voice stop-word [W]   show, set or reset the word that ends your reply (default: skadoosh)
 """
 import argparse
 import atexit
@@ -47,7 +48,7 @@ CLAIMED = HOME / "claimed"      # a job lives here while it is being spoken and 
 FLAG = HOME / "on"
 LOG = HOME / "voice.log"
 
-STOP_WORD = "skadoosh"
+DEFAULT_STOP_WORD = "skadoosh"
 WHISPER_MODEL = Path.home() / ".cache/whisper.cpp/ggml-small.en.bin"
 VOICE, VOICE_SPEED = "am_adam", 1.05
 JOB_MAX_AGE_S = 30 * 60      # a reply to a 30 minute old turn is a reply to nothing
@@ -83,26 +84,60 @@ def log(msg):
 
 # ---------- stop word ----------
 
-def split_at_stop_word(text):
+def clean_stop_word(raw):
+    """Lower-case letters and single spaces, or None if it cannot work as a stop word:
+    at least 4 letters (a shorter one fires on ordinary speech), at most 3 words."""
+    word = " ".join(re.sub(r"[^a-z ]", "", (raw or "").lower()).split())
+    return word if len(word.replace(" ", "")) >= 4 and len(word.split()) <= 3 else None
+
+
+def stop_word_source():
+    """(word, where it came from). CLAUDE_VOICE_STOP_WORD, else the first line of
+    ~/.claude-voice/stop-word, else the default. A value that cannot work is ignored."""
+    env = os.environ.get("CLAUDE_VOICE_STOP_WORD")
+    if env and clean_stop_word(env):
+        return clean_stop_word(env), "CLAUDE_VOICE_STOP_WORD"
+    try:
+        first = (HOME / "stop-word").read_text().splitlines()[0]
+    except (OSError, IndexError):
+        first = ""
+    if clean_stop_word(first):
+        return clean_stop_word(first), str(HOME / "stop-word")
+    return DEFAULT_STOP_WORD, "default"
+
+
+def load_stop_word():
+    return stop_word_source()[0]            # read per use, so `voice stop-word` applies without a restart
+
+
+def split_at_stop_word(text, stop_word=None):
     """(reply, found). Whisper spells it many ways, so match by similarity, and also
     across a split ("ska doosh"). Only a stop word that ends the utterance counts."""
+    stop_word = stop_word or load_stop_word()
+    target = re.sub(r"[^a-z]", "", stop_word.lower())
+    n_words = len(stop_word.split())
+    # A long word survives a spelling slip; a short one ("done") must match exactly.
+    min_ratio = 0.75 if len(target) >= 7 else 0.85
     words = text.split()
-    norm = [re.sub(r"[^a-z]", "", w.lower()) for w in words]
 
     def close(c):
-        return bool(c) and difflib.SequenceMatcher(None, c, STOP_WORD).ratio() >= 0.75
+        return bool(c) and difflib.SequenceMatcher(None, c, target).ratio() >= min_ratio
 
     # It only counts as the LAST thing said. Segments end on a ~0.7 s pause, so a deliberate
     # "skadoosh" is always final, while "after I say skadoosh I want..." is a sentence.
     def stop_at_end(ws):
         """Words before a trailing stop word, or None."""
         nm = [re.sub(r"[^a-z]", "", w.lower()) for w in ws]
-        if nm and len(nm[-1]) >= 6 and close(nm[-1]):     # "doosh" alone scores 0.77: length floor
-            return ws[:-1]
-        # Split spelling ("ska doosh"): only when both halves are short, otherwise
-        # "ahead" + "skadoosh" glues into a near-match and eats the real last word.
-        if len(nm) >= 2 and len(nm[-2]) <= 5 and len(nm[-1]) <= 6 and close(nm[-2] + nm[-1]):
-            return ws[:-2]
+        for k in range(1, n_words + 2):           # one word more than the phrase: "ska doosh"
+            if len(nm) < k:
+                break
+            joined = "".join(nm[-k:])
+            # Length floor: "doosh" alone scores 0.77 against "skadoosh". Length ceiling for a
+            # glued spelling: "ahead" + "skadoosh" would otherwise eat the real last word.
+            if len(joined) < len(target) - 2 or (k > 1 and len(joined) > len(target) + 2):
+                continue
+            if close(joined):
+                return ws[:-k]
         return None
 
     rest = stop_at_end(words)
@@ -174,10 +209,10 @@ def whisper(seg):
             w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
             w.writeframes(seg.tobytes())
         # --prompt biases the decoder toward the stop word, which it would otherwise
-        # spell as "scadoosh", "skidoosh" or drop.
+        # spell as "scadoosh", "skidoosh" or drop. (The default; a custom word is biased the same way.)
         out = subprocess.run(
             ["whisper-cli", "-m", str(WHISPER_MODEL), "-f", str(wav), "-l", "en", "-nt", "-np",
-             "--prompt", "Skadoosh."],
+             "--prompt", load_stop_word().capitalize() + "."],
             capture_output=True, text=True, timeout=60).stdout
     return re.sub(r"\[[^\]]*\]|\([^)]*\)", "", out).strip()   # drop [BLANK_AUDIO] etc.
 
@@ -554,7 +589,7 @@ def handle(job, speaker):
         if not result["ok"]:
             speaker.say(f"Could not reach {project}.")
     else:
-        speaker.say(SKIPPED, cache=True)        # skadoosh alone, or silence: next session
+        speaker.say(SKIPPED, cache=True)        # the stop word alone, or silence: next session
 
 
 def requeue_claimed():
@@ -586,7 +621,8 @@ def run():
     speaker = Speaker()
     speaker.warm(THANKS, SKIPPED)
     threading.Thread(target=prefetch_forever, daemon=True).start()
-    log("voice on. Say 'skadoosh' to finish a reply; skadoosh alone skips the session.")
+    word, source = stop_word_source()
+    log(f"voice on. Say '{word}' to finish a reply; '{word}' alone skips the session. (stop word from {source})")
     while True:
         job = next_job()
         if job is None:
@@ -655,6 +691,24 @@ end run'''
     print("voice did not start; run `voice on` in a pane to see why")
 
 
+def stop_word_cli(words, reset):
+    path = HOME / "stop-word"
+    if reset:
+        path.unlink(missing_ok=True)
+    elif words:
+        word = clean_stop_word(" ".join(words))
+        if not word:
+            sys.exit("stop word needs 4 or more letters in at most 3 words (letters and spaces only)")
+        HOME.mkdir(parents=True, exist_ok=True)
+        path.write_text(word + "\n")
+    word, source = stop_word_source()
+    print(f"stop word: {word}  (from {source})")
+    if os.environ.get("CLAUDE_VOICE_STOP_WORD") and source != "CLAUDE_VOICE_STOP_WORD":
+        print("note: CLAUDE_VOICE_STOP_WORD is set but not usable, so it is ignored")
+    elif source == "CLAUDE_VOICE_STOP_WORD" and (words or reset):
+        print("note: CLAUDE_VOICE_STOP_WORD is set and overrides the file")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -662,11 +716,16 @@ def main():
     sub.add_parser("up")
     s = sub.add_parser("say"); s.add_argument("text")
     l = sub.add_parser("listen"); l.add_argument("wav")
+    w = sub.add_parser("stop-word", help="show, set or reset the word that ends your reply")
+    w.add_argument("word", nargs="*", help="new stop word (2 to 3 words allowed); omit to show the current one")
+    w.add_argument("--reset", action="store_true", help="go back to the default")
     a = ap.parse_args()
     if a.cmd == "on":
         run()
     elif a.cmd == "up":
         up()
+    elif a.cmd == "stop-word":
+        stop_word_cli(a.word, a.reset)
     elif a.cmd == "say":
         Speaker().say(a.text)
     else:

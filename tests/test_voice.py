@@ -24,6 +24,67 @@ def speech_wav(text, path):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", aiff, "-ac", "1", "-ar", "16000", str(path)], check=True)
 
 
+class CustomStopWord(unittest.TestCase):
+    """The ending is configurable: env var, then ~/.claude-voice/stop-word, then the default."""
+
+    def setUp(self):
+        self._env = os.environ.pop("CLAUDE_VOICE_STOP_WORD", None)
+        self._home, voice.HOME = voice.HOME, Path(tempfile.mkdtemp(prefix="cv-sw-"))
+
+    def tearDown(self):
+        voice.HOME = self._home
+        os.environ.pop("CLAUDE_VOICE_STOP_WORD", None)
+        if self._env is not None:
+            os.environ["CLAUDE_VOICE_STOP_WORD"] = self._env
+
+    def test_default_is_skadoosh(self):
+        self.assertEqual(voice.stop_word_source(), ("skadoosh", "default"))
+
+    def test_file_then_env_precedence(self):
+        (voice.HOME / "stop-word").write_text("Over and out\nignored second line\n")
+        self.assertEqual(voice.load_stop_word(), "over and out")
+        os.environ["CLAUDE_VOICE_STOP_WORD"] = "banana split"
+        self.assertEqual(voice.stop_word_source(), ("banana split", "CLAUDE_VOICE_STOP_WORD"))
+
+    def test_unusable_values_fall_back(self):
+        for bad in ["", "ok", "a b c d e", "12345", "!!"]:
+            os.environ["CLAUDE_VOICE_STOP_WORD"] = bad
+            self.assertEqual(voice.load_stop_word(), "skadoosh", bad)
+
+    def test_default_no_longer_stops_once_changed(self):
+        os.environ["CLAUDE_VOICE_STOP_WORD"] = "over and out"
+        text = "yes go ahead skadoosh"
+        self.assertEqual(voice.split_at_stop_word(text), (text, False))
+
+    def test_phrase_stops_and_is_stripped(self):
+        os.environ["CLAUDE_VOICE_STOP_WORD"] = "over and out"
+        for spelled in ["over and out", "Over and out.", "over and, out!"]:
+            self.assertEqual(voice.split_at_stop_word(f"merge it {spelled}"), ("merge it", True), spelled)
+
+    def test_phrase_mid_sentence_is_just_words(self):
+        text = "when I say over and out you stop"
+        self.assertEqual(voice.split_at_stop_word(text, "over and out"), (text, False))
+
+    def test_short_word_must_match_exactly(self):
+        self.assertEqual(voice.split_at_stop_word("ship it done", "done"), ("ship it", True))
+        for near in ["ship it dune", "ship it gone", "ship it do"]:
+            self.assertFalse(voice.split_at_stop_word(near, "done")[1], near)
+
+    def test_long_custom_word_survives_a_spelling_slip(self):
+        self.assertEqual(voice.split_at_stop_word("ship it Abracadabra.", "abracadabra"), ("ship it", True))
+        self.assertEqual(voice.split_at_stop_word("ship it abracadabrah", "abracadabra"), ("ship it", True))
+        self.assertFalse(voice.split_at_stop_word("ship it abstract", "abracadabra")[1])
+
+    def test_cli_sets_shows_and_resets(self):
+        cmd = [sys.executable, str(Path(__file__).resolve().parent.parent / "voice.py"), "stop-word"]
+        env = {**os.environ, "CLAUDE_VOICE_HOME": str(voice.HOME)}
+        run = lambda *a: subprocess.run(cmd + list(a), capture_output=True, text=True, env=env, timeout=30)
+        self.assertIn("stop word: over and out", run("Over", "and", "out").stdout)
+        self.assertEqual((voice.HOME / "stop-word").read_text(), "over and out\n")
+        self.assertIn("stop word: skadoosh", run("--reset").stdout)
+        self.assertNotEqual(run("no").returncode, 0)
+
+
 class StopWord(unittest.TestCase):
     def test_variants_stop(self):
         for spelled in ["skadoosh", "Skadoosh.", "scadoosh", "skedoosh", "ska doosh", "SKADOOSH!"]:
