@@ -57,6 +57,19 @@ letters tolerates a slip or a split ("ska doosh"), a shorter one has to match ex
 distinctive you would not end a sentence with, two syllables or more. Test a candidate on a recording
 before you trust it: `voice listen reply.wav`.
 
+## How the summary is written
+
+Speech is heard once and cannot be skimmed, so the summarizer prompt follows the output rules of
+[ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT), adapted for the ear: it names the kind of
+need first ("Decision needed on the rollout." or "Nothing needed."), then says what now works, then only what
+is broken or unverified, stated flatly with cause and fix, and ends on one question with its choices ("Say A
+or B?"). 30 to 60 words, one ask, at most three choices with the recommended one first, no markdown, paths,
+filler or sign-off. The prompt is `SUMMARY_PROMPT` in `voice.py`; edit it to taste.
+
+Checked on 4 made-up turns (an approval, a clean finish, a failing test, an 8-item review) against the old
+prompt: every output kept to 50 to 59 words with the need first and the question last, and none had markdown or
+file paths. That is a spot check by reading, not a blind evaluation.
+
 ## Start with cc
 
 `voice up` starts the daemon in its own iTerm window unless one already holds the lock (the mic

@@ -63,14 +63,15 @@ END_SILENCE_FRAMES = 23      # ~0.7 s of quiet closes it (and sets stop-word lat
 MIN_SEGMENT_FRAMES = 12      # shorter than ~0.36 s is a click, not speech
 PREROLL_FRAMES = 10
 
+# Shaped for the ear after ayghri/i-have-adhd (MIT): the need first, concrete wins, one ask repeated last.
 SUMMARY_PROMPT = (
-    "You write what a voice assistant says out loud to a developer who runs nine Claude Code "
-    "sessions at once and is not looking at the screen. Input: project name, the user's recent "
-    "requests, and Claude's final message of this turn. Output 40 to 70 words of plain spoken "
-    "English. First one sentence on what got done. Then anything broken, skipped or unverified. "
-    "Last, exactly what is needed from the listener: a decision, an approval, an answer, or "
-    "'nothing, it is finished'. No markdown, no code, no file paths, no bullet lists, no "
-    "em-dashes, no greeting, no sign-off. Say numbers as a person would."
+    "You write what a voice assistant says out loud to a developer who runs nine Claude Code sessions at once, is not looking at the screen, and needs answers shaped for fast, low-effort listening. Speech is heard once: it cannot be skimmed or re-read, and the listener holds nothing in memory between sentences. Input: project name, the user's recent requests, and Claude's final message of this turn. The project name is spoken for you before your text, so never say it.\n"
+    'Output 30 to 60 words of plain spoken English, in this order:\n'
+    '1. The kind of thing needed and its topic, in five words or fewer, WITHOUT the choices, because the listener cannot judge a choice they have not heard yet: "Decision needed on the rollout." "Approval needed to merge." "One question about the schema." If nothing is needed: "Nothing needed."\n'
+    '2. What now works, in concrete terms, one sentence. Not what was attempted.\n'
+    '3. Only if something is broken, skipped or unverified: the cause and the fix, stated flatly. No "uh oh", no "unfortunately", no "there seems to be".\n'
+    '4. If something was needed in step 1, close with the exact question to answer, naming the choices so the answer is one word: "Say A or B?" "Apply the date fix, yes or no?" This question is always the LAST sentence, after the choices have been described. If nothing was needed, stop after step 2 or 3.\n'
+    'Rules: one ask only. If several things need the listener, give the most blocking one and say "and two more after that." Choices: at most three, each described in a few words before you name it, the recommended one first and marked. Keep times and counts exactly as the message gives them and never invent any. Say numbers as a person would. Name files and functions by what they do ("the login handler"), never by path. No markdown, no code, no bullet lists, no em-dashes, no greeting, no "I", no "Let me", no recap of the task, no sign-off such as "let me know". Never present a guess as fact.'
 )
 
 
