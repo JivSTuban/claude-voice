@@ -15,6 +15,30 @@ pane gets your reply  <--AppleScript write text--  whisper-cli  <--  mic until "
 macOS with iTerm2 only: replies are typed into the pane with AppleScript, and every Claude Code session
 you want spoken for must run in an iTerm pane.
 
+### One paste
+
+Open Claude Code in iTerm on the Mac you want this on and paste this. It asks you one question (the word that
+ends your reply), then does the rest of the steps below:
+
+```text
+Set up claude-voice on this Mac for me. Read https://github.com/JivSTuban/claude-voice (its README, Setup section) and follow it.
+
+First, before you install or change anything, ask me exactly one question and wait for my answer: "What word should end my spoken reply? One to three words, at least four letters, something you would never end a sentence with. Say 'default' to keep skadoosh." If I give a word, use it in the last step.
+
+Then, without asking me anything else:
+1. Check what is already installed (iTerm2, Python 3.10 to 3.12, ffmpeg, jq, whisper-cli, espeak-ng, the claude CLI, ~/.cache/whisper.cpp/ggml-small.en.bin) and install only what is missing with Homebrew. If Homebrew itself is missing, stop and tell me; do not use sudo.
+2. Create a venv at ~/.claude-voice/venv with a Python 3.10 to 3.12 and pip install numpy kokoro soundfile. Say that PyTorch is a large download before you start it.
+3. If the whisper model is missing, download ggml-small.en.bin (487 MB) from https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin into ~/.cache/whisper.cpp/. Say its size before you start it.
+4. Clone the repo to ~/claude-voice and symlink ~/claude-voice/bin/voice into ~/.local/bin, making sure ~/.local/bin is on my PATH.
+5. Back up ~/.claude/settings.json, then merge this Stop hook into it without removing any hook already there: command /Users/<me>/claude-voice/hook.sh (use my real home path).
+6. Install the i-have-adhd plugin so the on-screen replies are shaped like the voice: claude plugin marketplace add ayghri/i-have-adhd, then claude plugin install i-have-adhd@i-have-adhd, then touch ~/.claude/.i-have-adhd-always.
+7. Run voice stop-word "<my word>" (skip this if I said default), then run voice stop-word and show me its output.
+
+Do not run voice on (it takes the microphone and must be started by me from an iTerm pane). Do not print or store any secret. When you finish, give me: what you installed, what you checked and how, what you could not check, and the two things only I can do: allow microphone access for iTerm when macOS asks, and run voice on in an iTerm pane, then finish a turn in another iTerm pane running Claude Code. Also tell me how to undo the always-on step (rm ~/.claude/.i-have-adhd-always).
+```
+
+Prefer to do it by hand, or want to see each step? Here they are.
+
 **1. Tools**
 
 ```
@@ -176,5 +200,5 @@ start of a message anyway); say it in words and the session picks the skill itse
 
 ## Not verified
 
-The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 7 start to finish on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen; the `claude plugin` subcommands in step 7 exist in the CLI and the always-on hook was read, but the plugin was not installed or run);
+The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 7 start to finish on a fresh Mac; the one-paste prompt above was written from these steps and not yet run on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen; the `claude plugin` subcommands in step 7 exist in the CLI and the always-on hook was read, but the plugin was not installed or run);
 A custom stop word with a real voice (the matching is unit-tested on text, and "over and out", "abracadabra" and "done" each ended a reply in a macOS `say` recording through whisper small.en, but a human voice and accent are untested); live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).
