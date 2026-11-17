@@ -107,6 +107,22 @@ settings, so skip the `touch` if you rely on a fixed output format there.
 Also worth having: [change the ending](#change-the-ending), and the 3x3 grid this was built for,
 [cc-iterm](https://github.com/JivSTuban/cc-iterm).
 
+## Give your Claude access to it
+
+Copy this into Claude Code (any directory). It installs a small skill so your Claude knows how to run, check, debug and customize claude-voice, and how to write turns that read well aloud:
+
+```text
+Install the claude-voice skill for me.
+1. Create ~/.claude/skills/claude-voice/ and download https://raw.githubusercontent.com/JivSTuban/claude-voice/main/skills/claude-voice/SKILL.md into it as SKILL.md. If that folder already has a SKILL.md, show me the difference and keep mine unless I say otherwise.
+2. Read the file you saved and tell me in three lines what it now lets you do.
+3. Do not run voice on or voice up, and do not edit my settings.json.
+Then tell me to start a new Claude Code session, because skills load when a session starts.
+```
+
+Already cloned the repo? Link it instead: `ln -s ~/claude-voice/skills/claude-voice ~/.claude/skills/claude-voice`.
+
+Other agents (Codex, Cursor and so on): paste the body of [`skills/claude-voice/SKILL.md`](skills/claude-voice/SKILL.md) into your `AGENTS.md`. The skill format is Claude Code's, so that route is untested.
+
 ## Use
 
 ```
@@ -200,5 +216,6 @@ start of a message anyway); say it in words and the session picks the skill itse
 
 ## Not verified
 
+The "Give your Claude access" install prompt was tested once in a throwaway home directory; other agents reading `SKILL.md` as `AGENTS.md` is untested;
 The Setup steps on a clean machine (the package names, the 487 MB model URL and Kokoro's Python range were checked against Homebrew, Hugging Face and PyPI, and the launcher's Python lookup was tested, but nobody has run steps 1 to 7 start to finish on a fresh Mac; the one-paste prompt above was written from these steps and not yet run on a fresh Mac; the macOS permission prompts are described from how the pieces work, not seen; the `claude plugin` subcommands in step 7 exist in the CLI and the always-on hook was read, but the plugin was not installed or run);
 A custom stop word with a real voice (the matching is unit-tested on text, and "over and out", "abracadabra" and "done" each ended a reply in a macOS `say` recording through whisper small.en, but a human voice and accent are untested); live mic with a real voice in a noisy room (threshold = 4x measured floor, min 300 RMS); nine sessions finishing at once on a real day; Kokoro first-load time on a cold start (~15 s).
