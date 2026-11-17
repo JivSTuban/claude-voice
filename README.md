@@ -4,6 +4,9 @@ Talk to nine Claude Code sessions, one at a time. When a session finishes a turn
 tells you what it did and what it needs, then listens for your reply until you say
 **skadoosh**. The reply is typed into the pane that asked.
 
+<p align="center"><a href="docs/demo.mp4"><img src="docs/demo.gif" width="270" alt="A 33 second cartoon explaining claude-voice: a monkey with nine Claude Code helpers, a voice that tells him what each one did, and a stop word that sends his reply"></a></p>
+<p align="center"><sub>33 s. <a href="docs/demo.mp4">Watch it with sound.</a></sub></p>
+
 ```
 session stops --Stop hook--> queue/*.json --voice.py--> Haiku summary --> Kokoro speaks
                                                                               |
